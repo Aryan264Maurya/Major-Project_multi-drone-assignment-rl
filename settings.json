@@ -1,0 +1,169 @@
+{
+  "SettingsVersion": 1.2,
+  "SimMode": "Multirotor",
+  "ViewMode":"FlyWithMe",
+  
+  "TimeOfDay": {
+    "Enabled": false,
+    "StartDateTime": "",
+    "CelestialClockSpeed": 1,
+    "StartDateTimeDst": false,
+    "UpdateIntervalSecs": 60
+  },
+  "OriginGeopoint": {
+    "Latitude": 47.641468,
+    "Longitude": -122.140165,
+    "Altitude": 122
+  },
+  "TimeOfDay": {
+    "Enabled": false,
+    "StartDateTime": "",
+    "CelestialClockSpeed": 1,
+    "StartDateTimeDst": false,
+    "UpdateIntervalSecs": 60
+  },
+  "SubWindows": [
+    {"WindowID": 0, "CameraName": "0", "ImageType": 3, "VehicleName": "", "Visible": false, "External": false},
+    {"WindowID": 1, "CameraName": "0", "ImageType": 5, "VehicleName": "", "Visible": false, "External": false},
+    {"WindowID": 2, "CameraName": "0", "ImageType": 0, "VehicleName": "", "Visible": false, "External": false}
+  ],
+
+  "Vehicles": {
+    "drone_1": {
+      "VehicleType": "SimpleFlight",
+      "X":0,
+      "Y":0,
+      "Yaw":0,
+      "Z":0,
+      "DefaultVehicleState": "Armed",
+      "EnableCollisionPassthrogh": false,
+      "EnableCollisions": true,
+      "AllowAPIAlways": true,
+      "RC": {
+        "RemoteControlID": 0,
+        "AllowAPIWhenDisconnected": false
+      },
+      "Sensors": {      
+        "Lidar1": {
+          "SensorType": 6,
+          "Enabled": true,
+          "Range":200,
+          "NumberOfChannels": 64,
+          "RotationsPerSecond": 10,
+          "PointsPerSecond": 100000,
+          "X": 0,
+          "Y": 0,
+          "Z": -1,
+          "Roll": 0,
+          "Pitch": 0,
+          "Yaw": 0,
+          "VerticalFOVUpper": 30,
+          "VerticalFOVLower": -30,
+          "HorizontalFOVStart": -180,
+          "HorizontalFOVEnd": 180,
+          "DrawDebugPoints": true,
+          "DataFrame": "SensorLocalFrame"
+        }
+      },
+      "Cameras": {
+        "front_left": {
+          "CaptureSettings": [
+            {
+              "ImageType": 0,
+              "Width": 1920,
+              "Height": 1080,
+              "FOV_Degrees": 90,
+              "TargetGamma": 1.0
+            }
+          ],
+          "X": 0.0,
+          "Y": -0.3,
+          "Z": 0,
+          "Pitch": 0,
+          "Roll": 0,
+          "Yaw": -90
+        },
+        "front_right": {
+          "CaptureSettings": [
+            {
+              "ImageType": 0,
+              "Width": 1920,
+              "Height": 1080,
+              "FOV_Degrees": 90,
+              "TargetGamma": 1.0
+            }
+          ],
+          "X": 0.0,
+          "Y": 0.3,
+          "Z": 0,
+          "Pitch": 0,
+          "Roll": 0,
+          "Yaw": 90
+        },
+        "bottom_center": {
+          "CaptureSettings": [
+            {
+              "ImageType": 0,
+              "Width": 1920,
+              "Height": 1080,
+              "FOV_Degrees": 90,
+              "TargetGamma": 1.0
+            }
+          ],
+          "X": 0.0,
+          "Y": 0.0,
+          "Z": -0.1,
+          "Pitch": -90,
+          "Roll": 0,
+          "Yaw": 0
+        },
+        "back_center": {
+          "CaptureSettings":[
+            {
+              "ImageType": 0,
+              "Width": 1920,
+              "Height": 1080,
+              "FOV_Degrees": 90,
+              "TargetGamma": 1.0
+            }
+          ],
+          "X": -0.3,
+          "Y": 0,
+          "Z": 0,
+          "Pitch": 0,
+          "Roll": 0,
+          "Yaw": 180
+        },
+        "front_center": {
+          "CaptureSettings":[
+            {
+              "ImageType": 0,
+              "Width": 1920,
+              "Height": 1080,
+              "FOV_Degrees": 90,
+              "TargetGamma": 1.0
+            }
+          ],
+          "X": 0.3,
+          "Y": 0,
+          "Z": 0,
+          "Pitch": 0,
+          "Roll": 0,
+          "Yaw": 0
+        }
+      }
+    }      
+  },
+  "Recording": {
+    "RecordOnMove": false,
+    "RecordInterval": 0.05,
+    "Enabled": false,
+    "Cameras": [
+        { "CameraName": "front_left", "ImageType": 0, "PixelsAsFloat": false,  "VehicleName": "drone_1", "Compress": false },
+        { "CameraName": "front_right", "ImageType": 0, "PixelsAsFloat": false,  "VehicleName": "drone_1", "Compress": false },
+        { "CameraName": "front_center", "ImageType": 0, "PixelsAsFloat": false,  "VehicleName": "drone_1", "Compress": false },
+        { "CameraName": "bottom_center", "ImageType": 0, "PixelsAsFloat": false,  "VehicleName": "drone_1", "Compress": false },
+        { "CameraName": "back_center", "ImageType": 0, "PixelsAsFloat": false,  "VehicleName": "drone_1", "Compress": false }
+    ]
+  }
+}
