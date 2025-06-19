@@ -57,3 +57,5 @@ saved_model/**/* filter=lfs diff=lfs merge=lfs -text
 # Video files - compressed
 *.mp4 filter=lfs diff=lfs merge=lfs -text
 *.webm filter=lfs diff=lfs merge=lfs -text
+U2USim_2_Linux_version/Landscape3/Binaries/Linux/Landscape3-Linux-Shipping filter=lfs diff=lfs merge=lfs -text
+U2USim_2_Linux_version/Landscape3/Content/Paks/Landscape3-Linux.pak filter=lfs diff=lfs merge=lfs -text
