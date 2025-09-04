@@ -11,6 +11,43 @@ size_categories:
 - 10K<n<100K
 ---
 
+## Abstract
+Swarm UAV autonomous flight for Long-Horizon (LH) tasks is crucial for advancing the low-altitude economy. 
+However, existing methods focus only on specific basic tasks due to dataset limitations, failing in real-world deployment for LH tasks. 
+LH tasks are not mere concatenations of basic tasks, requiring handling long-term dependencies, maintaining persistent states, and adapting to dynamic goal shifts. 
+This paper presents U2UData-2, the first large-scale swarm UAV autonomous flight dataset for LH tasks and the first scalable swarm UAV data online collection and algorithm closed-loop verification platform. 
+The dataset is captured by 15 UAVs in autonomous collaborative flights for LH tasks, comprising 12 scenes, 720 traces, 120 hours, 600 seconds per trajectory, 4.32M LiDAR frames, and 12.96M RGB frames. 
+This dataset also includes brightness, temperature, humidity, smoke, and airflow values covering all flight routes. 
+The platform supports the customization of simulators, UAVs, sensors, flight algorithms, formation modes, and LH tasks. 
+Through a visual control window, this platform allows users to collect customized datasets through one-click deployment online and to verify algorithms by closed-loop simulation. 
+U2UData-2 also introduces an LH task for **wildlife conservation** and provides comprehensive benchmarks with 9 SOTA models. 
+U2UData-2 can be found at https://fengtt42.github.io/U2UData-2/.
+
+## Helper
+If you need the full dataset, you can send an email to obtain the Baidu Cloud link for downloading.
+PPM is a binary image format. If you need PNG format, we provide conversion code, which you can download and convert by yourself.
+I have full parameter information for each trajectory. If you need other parameter information, such as IMU, detailed drone parameters, etc., you can contact me by email at any time.
+
+## Cite
+@inproceedings{feng2025u2udata2scalableswarmuavs,
+
+    title={U2UData-2: A Scalable Swarm UAVs Autonomous Flight Dataset for Long-horizon Tasks}, 
+
+    author={Tongtong Feng and Xin Wang and Feilin Han and Leping Zhang and Wenwu Zhu},
+
+    year={2025},
+
+    url={https://arxiv.org/abs/2509.00055}
+
+}
+
+U2UData-2: https://huggingface.co/papers/2509.00055
+
+## Web Link
+https://fengtt42.github.io/U2UData-2/
+
+
+
 ## 1. 文件分类
 - U2USim_2_Windows_version 仿真环境的windows打包版本
 - U2USim_2_Linux_version 仿真环境的Linux20.04打包版本
