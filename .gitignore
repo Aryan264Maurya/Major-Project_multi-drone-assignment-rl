@@ -1,0 +1,29 @@
+# IDE
+.vs/
+.idea/
+.vscode/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyd
+*.so
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Outputs
+outputs/
+
+# Models
+*.pt
+
+# Databases & logs
+*.db
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
