@@ -1,10 +1,7 @@
 import os
 import argparse
-import itertools
 import random
 import time
-
-from collections import deque
 
 import airsim
 import numpy as np
@@ -13,9 +10,11 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
+from assignment_env import AssignmentEnv
 from assignment_layer import assign_tasks
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -27,85 +26,6 @@ def seed_everything(seed=42):
     torch.manual_seed(seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
-
-
-class AssignmentEnv:
-    def __init__(self, n=3, coord_limit=15.0, z_level=-10.0):
-        self.n = n
-        self.coord_limit = coord_limit
-        self.z_level = z_level
-        self.permutations = list(itertools.permutations(range(n)))
-        self.state_dim = (self.n * 3) + (self.n * 3) + (self.n * self.n)
-
-    def sample_scene(self):
-        drones = []
-        tasks = []
-
-        for _ in range(self.n):
-            x = random.uniform(-self.coord_limit, self.coord_limit)
-            y = random.uniform(-self.coord_limit, self.coord_limit)
-            drones.append((x, y, self.z_level))
-
-        for _ in range(self.n):
-            x = random.uniform(-self.coord_limit, self.coord_limit)
-            y = random.uniform(-self.coord_limit, self.coord_limit)
-            tasks.append((x, y, self.z_level))
-
-        return drones, tasks
-
-    def sample_tasks(self):
-        tasks = []
-        for _ in range(self.n):
-            x = random.uniform(-self.coord_limit, self.coord_limit)
-            y = random.uniform(-self.coord_limit, self.coord_limit)
-            tasks.append((x, y, self.z_level))
-        return tasks
-
-    def encode_state(self, drones, tasks):
-        drones = np.array(drones, dtype=np.float32).copy()
-        tasks = np.array(tasks, dtype=np.float32).copy()
-
-        drones[:, 0] /= self.coord_limit
-        drones[:, 1] /= self.coord_limit
-        tasks[:, 0] /= self.coord_limit
-        tasks[:, 1] /= self.coord_limit
-
-        drones[:, 2] /= abs(self.z_level)
-        tasks[:, 2] /= abs(self.z_level)
-
-        dist_matrix = np.zeros((self.n, self.n), dtype=np.float32)
-        for i in range(self.n):
-            for j in range(self.n):
-                dist_matrix[i][j] = np.linalg.norm(drones[i] - tasks[j])
-
-        dist_matrix /= self.coord_limit
-
-        state = np.concatenate([
-            drones.flatten(),
-            tasks.flatten(),
-            dist_matrix.flatten()
-        ]).astype(np.float32)
-
-        return state
-
-    def total_cost_for_perm(self, drones, tasks, perm):
-        cost = 0.0
-        for drone_idx, task_idx in enumerate(perm):
-            d = np.array(drones[drone_idx], dtype=np.float32)
-            t = np.array(tasks[task_idx], dtype=np.float32)
-            cost += np.linalg.norm(d - t)
-        return float(cost)
-
-    def reward(self, drones, tasks, action_idx):
-        perm = self.permutations[action_idx]
-        return -self.total_cost_for_perm(drones, tasks, perm)
-
-    def step(self, drones, tasks, action_idx):
-        state = self.encode_state(drones, tasks)
-        reward = self.reward(drones, tasks, action_idx)
-        next_state = state.copy()
-        done = True
-        return state, reward, next_state, done
 
 
 class PPOBuffer:
@@ -175,10 +95,16 @@ class PPOAgent:
         self.optimizer = optim.Adam(self.model.parameters(), lr=lr)
         self.buffer = PPOBuffer()
 
-    def select_action(self, state, deterministic=False):
+    def select_action(self, state, valid_actions=None, deterministic=False):
         state_t = torch.tensor(state, dtype=torch.float32, device=DEVICE).unsqueeze(0)
         with torch.no_grad():
             logits, value = self.model(state_t)
+
+            if valid_actions is not None and len(valid_actions) > 0:
+                masked_logits = torch.full_like(logits, -1e9)
+                masked_logits[:, valid_actions] = logits[:, valid_actions]
+                logits = masked_logits
+
             dist = torch.distributions.Categorical(logits=logits)
 
             if deterministic:
@@ -198,10 +124,16 @@ class PPOAgent:
         actions = torch.tensor(np.array(self.buffer.actions), dtype=torch.long, device=DEVICE)
         old_logprobs = torch.tensor(np.array(self.buffer.logprobs), dtype=torch.float32, device=DEVICE)
         rewards = torch.tensor(np.array(self.buffer.rewards), dtype=torch.float32, device=DEVICE)
-        old_values = torch.tensor(np.array(self.buffer.values), dtype=torch.float32, device=DEVICE)
+        values = torch.tensor(np.array(self.buffer.values), dtype=torch.float32, device=DEVICE)
+        dones = torch.tensor(np.array(self.buffer.dones), dtype=torch.float32, device=DEVICE)
 
-        returns = rewards.clone()
-        advantages = returns - old_values
+        returns = torch.zeros_like(rewards)
+        running_return = 0.0
+        for t in reversed(range(len(rewards))):
+            running_return = rewards[t] + self.gamma * running_return * (1.0 - dones[t])
+            returns[t] = running_return
+
+        advantages = returns - values
         if advantages.numel() > 1:
             advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
 
@@ -226,7 +158,7 @@ class PPOAgent:
                 mb_returns = returns[mb_idx]
                 mb_advantages = advantages[mb_idx]
 
-                logits, values = self.model(mb_states)
+                logits, values_pred = self.model(mb_states)
                 dist = torch.distributions.Categorical(logits=logits)
 
                 new_logprobs = dist.log_prob(mb_actions)
@@ -237,7 +169,7 @@ class PPOAgent:
                 surr2 = torch.clamp(ratios, 1.0 - self.clip_range, 1.0 + self.clip_range) * mb_advantages
                 actor_loss = -torch.min(surr1, surr2).mean()
 
-                value_loss = F.mse_loss(values, mb_returns)
+                value_loss = F.mse_loss(values_pred, mb_returns)
 
                 loss = actor_loss + self.value_coef * value_loss - self.entropy_coef * entropy
 
@@ -272,7 +204,6 @@ def rolling_mean(values, window=50):
 
 def plot_convergence(history, out_dir):
     os.makedirs(out_dir, exist_ok=True)
-
     ep = np.arange(1, len(history["reward"]) + 1)
 
     plt.figure(figsize=(10, 5))
@@ -364,9 +295,7 @@ def prepare_drones(client, drone_names):
     time.sleep(2)
 
     offsets = [(0, 0), (5, 0), (-5, 0)]
-    targets = []
-    for i in range(len(drone_names)):
-        targets.append((offsets[i][0], offsets[i][1], -10))
+    targets = [(offsets[i][0], offsets[i][1], -10) for i in range(len(drone_names))]
 
     for i, name in enumerate(drone_names):
         client.moveToPositionAsync(
@@ -401,82 +330,16 @@ def shutdown_drones(client, drone_names):
             pass
 
 
-def move_and_record_trajectories(client, drone_names, tasks, perm, max_wait=90, tol=2.5, poll_dt=0.25):
-    trajectories = {name: [] for name in drone_names}
-
-    for name in drone_names:
-        p = client.getMultirotorState(vehicle_name=name).kinematics_estimated.position
-        trajectories[name].append((p.x_val, p.y_val, p.z_val))
-
-    for drone_idx, task_idx in enumerate(perm):
-        drone_name = drone_names[drone_idx]
-        x, y, z = tasks[task_idx]
-        client.moveToPositionAsync(
-            x, y, z,
-            5,
-            timeout_sec=30,
-            vehicle_name=drone_name
-        )
-
-    start = time.time()
-    while time.time() - start < max_wait:
-        all_reached = True
-        for i, name in enumerate(drone_names):
-            state = client.getMultirotorState(vehicle_name=name)
-            pos = state.kinematics_estimated.position
-            trajectories[name].append((pos.x_val, pos.y_val, pos.z_val))
-            if not reached(client, name, tasks[perm[i]], tol=tol):
-                all_reached = False
-
-        if all_reached:
-            break
-
-        time.sleep(poll_dt)
-
-    total_time = time.time() - start
-    return trajectories, total_time, all_reached
-
-
-def plot_trajectories(trajectories, drones_start, tasks, perm, save_path, title):
-    plt.figure(figsize=(8, 8))
-
-    tasks_np = np.array(tasks)
-    plt.scatter(tasks_np[:, 0], tasks_np[:, 1], marker="*", s=180, label="Tasks")
-
-    start_np = np.array(drones_start)
-    plt.scatter(start_np[:, 0], start_np[:, 1], marker="o", s=80, label="Drone start")
-
-    for drone_name, points in trajectories.items():
-        pts = np.array(points)
-        if len(pts) >= 2:
-            plt.plot(pts[:, 0], pts[:, 1], linewidth=2, label=drone_name)
-
-    for i, task_idx in enumerate(perm):
-        s = drones_start[i]
-        t = tasks[task_idx]
-        plt.plot([s[0], t[0]], [s[1], t[1]], linestyle="--", linewidth=1)
-
-    plt.xlabel("X")
-    plt.ylabel("Y")
-    plt.title(title)
-    plt.legend()
-    plt.grid(True)
-    plt.axis("equal")
-    plt.tight_layout()
-    plt.savefig(save_path, dpi=200)
-    plt.close()
-
-
-def train_ppo(model_path="ppo_assignment.pt", episodes=10000, update_every=64, out_dir="outputs/ppo"):
+def train_ppo(model_path="ppo_assignment.pt", episodes=10000, update_every=64, out_dir="outputs/ppo", task_multiplier=1):
     os.makedirs(out_dir, exist_ok=True)
     plots_dir = os.path.join(out_dir, "plots")
     models_dir = os.path.join(out_dir, "models")
     os.makedirs(plots_dir, exist_ok=True)
     os.makedirs(models_dir, exist_ok=True)
 
-    env = AssignmentEnv(n=3)
+    env = AssignmentEnv(n=3, task_multiplier=task_multiplier)
     state_dim = env.state_dim
-    action_dim = len(env.permutations)
+    action_dim = env.action_dim
 
     agent = PPOAgent(
         state_dim=state_dim,
@@ -498,29 +361,40 @@ def train_ppo(model_path="ppo_assignment.pt", episodes=10000, update_every=64, o
     }
 
     for ep in range(episodes):
-        drones, tasks = env.sample_scene()
-        state = env.encode_state(drones, tasks)
+        state = env.reset()
+        done = False
+        episode_reward = 0.0
 
-        action, logprob, value = agent.select_action(state, deterministic=False)
-        _, reward, _, done = env.step(drones, tasks, action)
+        while not done:
+            valid_actions = env.get_valid_actions()
+            action, logprob, value = agent.select_action(state, valid_actions=valid_actions, deterministic=False)
 
-        cost = -reward
-        hungarian_assignments, cost_matrix = assign_tasks(drones, tasks)
-        optimal_cost = sum(cost_matrix[d][t] for d, t in hungarian_assignments)
+            next_state, reward, done, _ = env.step(action)
+            agent.buffer.add(state, action, logprob, reward, value, done)
+
+            state = next_state
+            episode_reward += reward
+
+            if len(agent.buffer) >= update_every:
+                metrics = agent.update()
+                if metrics is not None:
+                    history["loss"].append(
+                        metrics["actor_loss"] + metrics["value_loss"] - metrics["entropy"]
+                    )
+
+        cost = -episode_reward
+        optimal_cost = env.optimal_cost()
         gap = cost - optimal_cost
 
-        agent.buffer.add(state, action, logprob, reward, value, done)
-
-        history["reward"].append(reward)
+        history["reward"].append(episode_reward)
         history["cost"].append(cost)
         history["gap"].append(gap)
 
-        if len(agent.buffer) >= update_every:
-            metrics = agent.update()
-            if metrics is not None:
-                history["loss"].append(
-                    metrics["actor_loss"] + metrics["value_loss"] - metrics["entropy"]
-                )
+        metrics = agent.update()
+        if metrics is not None:
+            history["loss"].append(
+                metrics["actor_loss"] + metrics["value_loss"] - metrics["entropy"]
+            )
 
         if (ep + 1) % 500 == 0:
             print(
@@ -530,10 +404,6 @@ def train_ppo(model_path="ppo_assignment.pt", episodes=10000, update_every=64, o
                 f"avg_gap={np.mean(history['gap'][-500:]):.3f}"
             )
 
-    metrics = agent.update()
-    if metrics is not None:
-        history["loss"].append(metrics["actor_loss"] + metrics["value_loss"] - metrics["entropy"])
-
     save_path = os.path.join(models_dir, model_path)
     torch.save(agent.model.state_dict(), save_path)
     print(f"Model saved to {save_path}")
@@ -542,14 +412,14 @@ def train_ppo(model_path="ppo_assignment.pt", episodes=10000, update_every=64, o
     print(f"Training plots saved in {plots_dir}")
 
 
-def run_airsim(model_path="ppo_assignment.pt", tests=5, out_dir="outputs/ppo"):
+def run_airsim(model_path="ppo_assignment.pt", tests=5, out_dir="outputs/ppo", task_multiplier=1):
     os.makedirs(out_dir, exist_ok=True)
     plots_dir = os.path.join(out_dir, "plots")
     os.makedirs(plots_dir, exist_ok=True)
 
-    env = AssignmentEnv(n=3)
+    env = AssignmentEnv(n=3, task_multiplier=task_multiplier)
     state_dim = env.state_dim
-    action_dim = len(env.permutations)
+    action_dim = env.action_dim
 
     agent = PPOAgent(state_dim=state_dim, action_dim=action_dim)
     agent.model.load_state_dict(torch.load(model_path, map_location=DEVICE))
@@ -572,18 +442,38 @@ def run_airsim(model_path="ppo_assignment.pt", tests=5, out_dir="outputs/ppo"):
         drones = get_airsim_positions(client, drone_names)
         tasks = env.sample_tasks()
 
+        drone_battery = np.ones(env.n, dtype=np.float32)
+        drone_speed = np.ones(env.n, dtype=np.float32)
+        task_priority = np.random.randint(1, 6, size=env.num_tasks).astype(np.float32)
+
+        env.reset_from_scene(drones, tasks, drone_battery, drone_speed, task_priority)
+
         print("Drone Positions:", drones)
         print("Tasks:", tasks)
 
-        state = env.encode_state(drones, tasks)
-        action, _, _ = agent.select_action(state, deterministic=True)
-        perm = env.permutations[action]
+        state = env.encode_state()
+        chosen_tasks = []
 
-        ppo_cost = env.total_cost_for_perm(drones, tasks, perm)
-        hungarian_assignments, cost_matrix = assign_tasks(drones, tasks)
+        for _ in range(env.n):
+            valid_actions = env.get_valid_actions()
+            action, _, _ = agent.select_action(state, valid_actions=valid_actions, deterministic=True)
+            chosen_tasks.append(action)
+            state, _, done, _ = env.step(action)
+
+        ppo_cost = 0.0
+        for drone_idx, task_idx in enumerate(chosen_tasks):
+            ppo_cost += env.pair_cost(drone_idx, task_idx)
+
+        hungarian_assignments, cost_matrix = assign_tasks(
+            drones,
+            tasks,
+            drone_battery=drone_battery,
+            task_priority=task_priority,
+            drone_speed=drone_speed,
+        )
         hungarian_cost = sum(cost_matrix[d][t] for d, t in hungarian_assignments)
 
-        print("PPO chosen permutation:", perm)
+        print("PPO chosen tasks:", chosen_tasks)
         print("PPO total cost:", ppo_cost)
         print("Hungarian assignments:", hungarian_assignments)
         print("Hungarian total cost:", hungarian_cost)
@@ -595,38 +485,39 @@ def run_airsim(model_path="ppo_assignment.pt", tests=5, out_dir="outputs/ppo"):
         all_gaps.append(ppo_cost - hungarian_cost)
 
         print("\nMoving drones using PPO assignment...")
-        trajectories, completion_time, ok = move_and_record_trajectories(
-            client=client,
-            drone_names=drone_names,
-            tasks=tasks,
-            perm=perm,
-            max_wait=90,
-            tol=2.5,
-            poll_dt=0.25
-        )
 
+        for drone_idx, task_idx in enumerate(chosen_tasks):
+            drone_name = drone_names[drone_idx]
+            x, y, z = tasks[task_idx]
+            client.moveToPositionAsync(
+                x, y, z,
+                5,
+                timeout_sec=60,
+                vehicle_name=drone_name
+            )
+
+        start = time.time()
+        ok = False
+        while time.time() - start < 90:
+            all_reached = True
+            for drone_idx, task_idx in enumerate(chosen_tasks):
+                drone_name = drone_names[drone_idx]
+                if not reached(client, drone_name, tasks[task_idx], tol=2.5):
+                    all_reached = False
+                    break
+            if all_reached:
+                ok = True
+                break
+            time.sleep(0.25)
+
+        completion_time = time.time() - start
         all_times.append(completion_time)
         print(f"Completion time: {completion_time:.2f} sec")
-
-        traj_path = os.path.join(plots_dir, f"ppo_trajectory_test_{test_idx + 1}.png")
-        plot_trajectories(
-            trajectories=trajectories,
-            drones_start=drones,
-            tasks=tasks,
-            perm=perm,
-            save_path=traj_path,
-            title=f"PPO Flight Trajectories - Test {test_idx + 1}"
-        )
-        print(f"Trajectory plot saved to {traj_path}")
 
         if ok:
             print("All drones reached PPO targets!")
         else:
             print("Timeout: one or more drones did not reach targets.")
-            for name in drone_names:
-                state = client.getMultirotorState(vehicle_name=name)
-                pos = state.kinematics_estimated.position
-                print(name, (pos.x_val, pos.y_val, pos.z_val))
 
         time.sleep(2)
         shutdown_drones(client, drone_names)
@@ -648,6 +539,7 @@ if __name__ == "__main__":
     parser.add_argument("--out_dir", default="outputs/ppo")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--update_every", type=int, default=64)
+    parser.add_argument("--task_multiplier", type=int, default=1)
     args = parser.parse_args()
 
     seed_everything(args.seed)
@@ -657,11 +549,13 @@ if __name__ == "__main__":
             model_path=args.model_path,
             episodes=args.episodes,
             update_every=args.update_every,
-            out_dir=args.out_dir
+            out_dir=args.out_dir,
+            task_multiplier=args.task_multiplier,
         )
     else:
         run_airsim(
             model_path=args.model_path,
             tests=args.tests,
-            out_dir=args.out_dir
+            out_dir=args.out_dir,
+            task_multiplier=args.task_multiplier,
         )
