@@ -451,7 +451,7 @@ if __name__ == "__main__":
     parser.add_argument("--mode", choices=["train", "run"], required=True)
     parser.add_argument("--model_path", default="dqn_assignment.pt")
     parser.add_argument("--episodes", type=int, default=10000)
-    parser.add_argument("--tests", type=int, default=5)
+    parser.add_argument("--tests", type=int, default=3)
     parser.add_argument("--out_dir", default="outputs/dqn")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--task_multiplier", type=int, default=1)
